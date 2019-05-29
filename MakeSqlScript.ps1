@@ -1,5 +1,5 @@
 ﻿param(
-        $FileListPath = "aggr_value_round.files",
+        $FileListPath = "E:\SVN\example.files",
         $OutputFilePath = $null,
         $AddInfoMessage = 1
 )
@@ -15,20 +15,30 @@ $fileSeparator = 'GO'
 # Build file spearator pattern
 $fileSeparatorPattern = '\r\n' + $fileSeparator + '(\r\n)?'
 
-# Convert FileListPath relative path to qualified
-$FileListPath = Join-Path -Path $PSScriptRoot -ChildPath $FileListPath
+# Check if FileListPath is absolute, if not, root directory is set to $PSScriptRoot
+if(Split-Path -Path $FileListPath -IsAbsolute) {
+    $fileListRoot = Split-Path -Path $FileListPath -Parent
+} else {
+    $fileListRoot = $PSScriptRoot
+
+    # Convert FileListPath relative path to qualified
+    $FileListPath = Join-Path -Path $fileListRoot -ChildPath $FileListPath
+}
+
+# Set output file name if not provided
+if(-Not($OutputFilePath)) {
+    $fileListExtension = '.' + (Split-Path -Path $FileListPath -Leaf).Split(".")[-1]
+    $OutputFilePath = $FileListPath -replace $fileListExtension,'.script.sql'
+}
 
 # Convert OutputFilePath relative path to qualified
-if (-Not($OutputFilePath)) {
-    $OutputFilePath = Split-Path -Path $FileListPath -Leaf
-    $OutputFilePath = $OutputFilePath -replace '\.files',''
-    $OutputFilePath += '.sql'
+if(-Not(Split-Path -Path $OutputFilePath -IsAbsolute)) {
+    $OutputFilePath = Join-Path -Path $fileListRoot -ChildPath $OutputFilePath
 }
-$OutputFilePath = Join-Path -Path $PSScriptRoot -ChildPath $OutputFilePath
 
 # Check if OutputFilePath exists and delete if needed
-if(Test-Path -LiteralPath $OutputFilePath) {
-    Remove-Item -LiteralPath $OutputFilePath
+if(Test-Path -Path $OutputFilePath) {
+    Remove-Item -Path $OutputFilePath -Confirm
 }
 
 # Get file list
@@ -41,9 +51,9 @@ foreach($file in $fileList) {
     }
     
     # Convert relative path to qualified
-    if (Split-Path -Path $file -IsAbsolute)
+    if (-Not(Split-Path -Path $file -IsAbsolute))
     {
-        $file = Join-Path -Path $PSScriptRoot -ChildPath $file
+        $file = Join-Path -Path $fileListRoot -ChildPath $file
     }
 
     # Resolves wildcards
@@ -52,16 +62,17 @@ foreach($file in $fileList) {
     Write-Host $resolvedFile
 
     # Get raw file content
-    $fileContent = Get-Content -LiteralPath $resolvedFile -Raw
+    $fileContent = Get-Content -Path $resolvedFile -Raw
 
     # Check encoding and try in UTF8 - resolves problem with UTF-8 no BOM
-    if($fileContent -imatch '[^\s\x21-\x7EęóąśłżźćńĹş]') {
-        Write-Host 'Try UTF8'
-        $fileContent = Get-Content -LiteralPath $resolvedFile -Encoding UTF8
+    if($fileContent -imatch '[^\s\x21-\x7EęóąśłżźćńĹş›]') {
+        Write-Warning 'Try UTF8'
+        $fileContent = Get-Content -Path $resolvedFile -Encoding UTF8
     }
     
     # Add file separator if necessary
     if($fileContent -notmatch $fileSeparatorPattern) {
+        Write-Debug 'Add file separator'
         $fileContent = $fileContent + "`r`n$fileSeparator"
     }
 
@@ -72,9 +83,9 @@ foreach($file in $fileList) {
     }
 
     # Add to script
-    Add-Content -LiteralPath $OutputFilePath -Value $fileContent -Encoding UTF8
+    Add-Content -Path $OutputFilePath -Value $fileContent -Encoding UTF8
 }
 if($AddInfoMessage = 1) {
-    $infoMessage = "RAISERROR('Script copleted!', 10, 1, 1) WITH NOWAIT;`r`n$fileSeparator`r`n"
-    Add-Content -LiteralPath $OutputFilePath -Value $infoMessage -Encoding UTF8
+    $infoMessage = "RAISERROR('Script completed!', 10, 1, 1) WITH NOWAIT;`r`n$fileSeparator`r`n"
+    Add-Content -Path $OutputFilePath -Value $infoMessage -Encoding UTF8
 }
