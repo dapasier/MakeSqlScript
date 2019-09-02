@@ -1,5 +1,5 @@
 ﻿param(
-        $FileListPath = "E:\SVN\example.files",
+        $FileListPath = "e:\SVN\CBI\DDL_xml_pos_docs_cbi.files",
         $OutputFilePath = $null,
         $AddInfoMessage = 1
 )
@@ -49,7 +49,7 @@ foreach($file in $fileList) {
     if ($file -like '*/*') {
         $file = $file -replace '/','\'
     }
-    
+
     # Convert relative path to qualified
     if (-Not(Split-Path -Path $file -IsAbsolute))
     {
@@ -67,9 +67,9 @@ foreach($file in $fileList) {
     # Check encoding and try in UTF8 - resolves problem with UTF-8 no BOM
     if($fileContent -imatch '[^\s\x21-\x7EęóąśłżźćńĹş›]') {
         Write-Warning 'Try UTF8'
-        $fileContent = Get-Content -Path $resolvedFile -Encoding UTF8
+        $fileContent = Get-Content -Path $resolvedFile -Encoding UTF8 -Delimiter "\r\n"
     }
-    
+
     # Add file separator if necessary
     if($fileContent -notmatch $fileSeparatorPattern) {
         Write-Debug 'Add file separator'
