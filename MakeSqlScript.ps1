@@ -1,5 +1,5 @@
 ﻿param(
-        $FileListPath = "e:\SVN\CBI\DDL_xml_pos_docs_cbi.files",
+        $FileListPath = "E:\SVN\CE\LogPreserveTTFix.files",
         $OutputFilePath = $null,
         $AddInfoMessage = 1
 )
@@ -14,6 +14,9 @@ $fileSeparator = 'GO'
 
 # Build file spearator pattern
 $fileSeparatorPattern = '\r\n' + $fileSeparator + '(\r\n)?'
+
+# Alter flag
+$alterFlag = $false
 
 # Check if FileListPath is absolute, if not, root directory is set to $PSScriptRoot
 if(Split-Path -Path $FileListPath -IsAbsolute) {
@@ -45,10 +48,24 @@ if(Test-Path -Path $OutputFilePath) {
 $fileList = Get-Content -LiteralPath $FileListPath
 
 foreach($file in $fileList) {
-    # Convert / to \
+	# Reset alter flag
+	$alterFlag = 0
+
+	# Ignore commented lines
+	if ($file -like '#*') {
+		Write-Host 'Commented:'$file -ForegroundColor Green
+		Continue
+	}
+
+	if ($file -like '*#ALTER*') {
+		$file = $file -replace('#ALTER','')
+		$alterFlag = $true
+	}
+
+	# Convert / to \
     if ($file -like '*/*') {
-        $file = $file -replace '/','\'
-    }
+        $file = $file -replace('/','\')
+	}
 
     # Convert relative path to qualified
     if (-Not(Split-Path -Path $file -IsAbsolute))
@@ -59,16 +76,27 @@ foreach($file in $fileList) {
     # Resolves wildcards
     $resolvedFile = Resolve-Path -Path $file
 
+	# Write host message
+	if($alterFlag) {
+		Write-Host 'ALTER ' -NoNewline -ForegroundColor Blue
+	}
     Write-Host $resolvedFile
 
     # Get raw file content
     $fileContent = Get-Content -Path $resolvedFile -Raw
 
     # Check encoding and try in UTF8 - resolves problem with UTF-8 no BOM
-    if($fileContent -imatch '[^\s\x21-\x7EęóąśłżźćńĹş›]') {
+    if($fileContent -imatch '[^\s\x21-\x7EęóąśłżźćńĹş›–]') {
         Write-Warning 'Try UTF8'
         $fileContent = Get-Content -Path $resolvedFile -Encoding UTF8 -Delimiter "\r\n"
-    }
+	}
+	
+	# Replace CREATE to ALTER
+	if($alterFlag) {
+		$fileContent = $fileContent -replace('CREATE PROC','ALTER PROC')
+		$fileContent = $fileContent -replace('CREATE FUNCTION','ALTER FUNCTION')
+		$fileContent = $fileContent -replace('CREATE TRIGGER','ALTER TRIGGER')
+	}
 
     # Add file separator if necessary
     if($fileContent -notmatch $fileSeparatorPattern) {
