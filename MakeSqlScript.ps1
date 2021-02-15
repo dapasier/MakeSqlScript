@@ -1,5 +1,5 @@
 ﻿param(
-        $FileListPath = "E:\SVN\CE\LogPreserveTTFix.files",
+        $FileListPath = "e:\SVN\CKK_mod.files",
         $OutputFilePath = $null,
         $AddInfoMessage = 1
 )
@@ -39,9 +39,16 @@ if(-Not(Split-Path -Path $OutputFilePath -IsAbsolute)) {
     $OutputFilePath = Join-Path -Path $fileListRoot -ChildPath $OutputFilePath
 }
 
-# Check if OutputFilePath exists and delete if needed
+# Check if OutputFilePath exists and rename if needed
 if(Test-Path -Path $OutputFilePath) {
-    Remove-Item -Path $OutputFilePath -Confirm
+	$oldFile = Split-Path -Path $OutputFilePath -Leaf
+	$oldFileExtension = '.' + $oldFile.Split(".")[-1]
+	$oldFileDate = Get-ItemPropertyValue -Path $OutputFilePath -Name CreationTime
+	$newFileExtension = '.old.' + $oldFileDate.ToString("yyyyMMdd.HHmmss") + '.sql'
+	$newFile = $oldFile -replace $oldFileExtension,$newFileExtension
+	$msg = 'Renaming old script file ' + $oldFile.ToString() + ' to ' + $newFile
+	Write-Warning $msg
+	Rename-Item -Path $OutputFilePath -NewName $newFile.ToString()
 }
 
 # Get file list
@@ -117,3 +124,4 @@ if($AddInfoMessage = 1) {
     $infoMessage = "RAISERROR('Script completed!', 10, 1, 1) WITH NOWAIT;`r`n$fileSeparator`r`n"
     Add-Content -Path $OutputFilePath -Value $infoMessage -Encoding UTF8
 }
+Write-Host "Script created:"$OutputFilePath
