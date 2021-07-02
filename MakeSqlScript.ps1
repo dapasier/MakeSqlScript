@@ -1,9 +1,9 @@
 ﻿param(
-        $FileListPath = "e:\SVN\CKK_mod.files",
-        $OutputFilePath = $null,
-        $AddInfoMessage = 1
+	$FileListPath = "E:\SVN\CE\PromotionAdd.files",
+	$OutputFilePath = $null,
+	$AddInfoMessage = $true
 )
-#Requires -Version 5.1
+#Requires -Version 7
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $DebugPreference = "SilentlyContinue"
@@ -13,30 +13,36 @@ $DebugPreference = "SilentlyContinue"
 $fileSeparator = 'GO'
 
 # Build file spearator pattern
-$fileSeparatorPattern = '\r\n' + $fileSeparator + '(\r\n)?'
+$fileSeparatorPattern = '\r\n' + $fileSeparator + '(\r\n)?\Z'
 
-# Alter flag
+# Regex to match object name
+$objectNameRegexPattern = '(?:CREATE|ALTER)\s+(?:TABLE|PROC|PROCEDURE|FUNCTION|TRIGGER|VIEW)\s+(\[?\w+\]?\.)?(\[?\w+\]?)'
+
+# Variables
+$objectName = ""
+# Flags
 $alterFlag = $false
+$dropTableFlag = $false
 
 # Check if FileListPath is absolute, if not, root directory is set to $PSScriptRoot
 if(Split-Path -Path $FileListPath -IsAbsolute) {
-    $fileListRoot = Split-Path -Path $FileListPath -Parent
+	$fileListRoot = Split-Path -Path $FileListPath -Parent
 } else {
-    $fileListRoot = $PSScriptRoot
+	$fileListRoot = $PSScriptRoot
 
-    # Convert FileListPath relative path to qualified
-    $FileListPath = Join-Path -Path $fileListRoot -ChildPath $FileListPath
+	# Convert FileListPath relative path to qualified
+	$FileListPath = Join-Path -Path $fileListRoot -ChildPath $FileListPath
 }
 
 # Set output file name if not provided
 if(-Not($OutputFilePath)) {
-    $fileListExtension = '.' + (Split-Path -Path $FileListPath -Leaf).Split(".")[-1]
-    $OutputFilePath = $FileListPath -replace $fileListExtension,'.script.sql'
+	$fileListExtension = '.' + (Split-Path -Path $FileListPath -Leaf).Split(".")[-1]
+	$OutputFilePath = $FileListPath -replace $fileListExtension,'.script.sql'
 }
 
 # Convert OutputFilePath relative path to qualified
 if(-Not(Split-Path -Path $OutputFilePath -IsAbsolute)) {
-    $OutputFilePath = Join-Path -Path $fileListRoot -ChildPath $OutputFilePath
+	$OutputFilePath = Join-Path -Path $fileListRoot -ChildPath $OutputFilePath
 }
 
 # Check if OutputFilePath exists and rename if needed
@@ -56,7 +62,8 @@ $fileList = Get-Content -LiteralPath $FileListPath
 
 foreach($file in $fileList) {
 	# Reset alter flag
-	$alterFlag = 0
+	$alterFlag = $false
+	$dropTableFlag = $false
 
 	# Ignore commented lines
 	if ($file -like '#*') {
@@ -69,33 +76,60 @@ foreach($file in $fileList) {
 		$alterFlag = $true
 	}
 
-	# Convert / to \
-    if ($file -like '*/*') {
-        $file = $file -replace('/','\')
+	if ($file -like '*#DROPTABLE*') {
+		$file = $file -replace('#DROPTABLE','')
+		$dropTableFlag = $true
 	}
 
-    # Convert relative path to qualified
-    if (-Not(Split-Path -Path $file -IsAbsolute))
-    {
-        $file = Join-Path -Path $fileListRoot -ChildPath $file
-    }
+	# Convert / to \
+	if ($file -like '*/*') {
+		$file = $file -replace('/','\')
+	}
 
-    # Resolves wildcards
-    $resolvedFile = Resolve-Path -Path $file
+	# Convert relative path to qualified
+	if (-Not(Split-Path -Path $file -IsAbsolute))
+	{
+		$file = Join-Path -Path $fileListRoot -ChildPath $file
+	}
+
+	# Resolves wildcards
+	$resolvedFile = Resolve-Path -Path $file
+	
+	# File name only
+	$fileName = Split-Path -Path $resolvedFile -LeafBase
 
 	# Write host message
 	if($alterFlag) {
 		Write-Host 'ALTER ' -NoNewline -ForegroundColor Blue
 	}
-    Write-Host $resolvedFile
+	if($dropTableFlag) {
+		Write-Host 'DROP TABLE ' -NoNewline -ForegroundColor DarkMagenta
+	}
+	Write-Host $resolvedFile
 
-    # Get raw file content
-    $fileContent = Get-Content -Path $resolvedFile -Raw
+	# Get raw file content
+	$fileContent = Get-Content -Path $resolvedFile -Raw
 
-    # Check encoding and try in UTF8 - resolves problem with UTF-8 no BOM
-    if($fileContent -imatch '[^\s\x21-\x7EęóąśłżźćńĹş›–]') {
-        Write-Warning 'Try UTF8'
-        $fileContent = Get-Content -Path $resolvedFile -Encoding UTF8 -Delimiter "\r\n"
+	# Get object name
+	$objectNameMatch = Select-String -Pattern $objectNameRegexPattern -InputObject $fileContent
+	if ($objectNameMatch) {
+		$objectName = $objectNameMatch.Matches.Groups[1].Value + $objectNameMatch.Matches.Groups[2].Value
+	}
+
+	# Check encoding and try in UTF8 - resolves problem with UTF-8 no BOM
+	if($fileContent -imatch '[^\s\x21-\x7EęóąśłżźćńĹş›–]') {
+		$fileContent = Get-Content -Path $resolvedFile -Encoding 1250 -Delimiter "\r\n"
+
+		if ($fileContent -imatch '[^\s\x21-\x7EęóąśłżźćńĹş›–]') {
+			$fileContent = Get-Content -Path $resolvedFile -Encoding utf8 -Delimiter "\r\n"
+			Write-Host 'Try UTF8'
+		} else {			
+			Write-Host 'Try Windows 1250'
+		}
+
+		if ($fileContent -imatch '[^\s\x21-\x7EęóąśłżźćńĹş›–]') {
+			Write-Warning 'Invalid characters still exists!'
+		}
 	}
 	
 	# Replace CREATE to ALTER
@@ -103,25 +137,31 @@ foreach($file in $fileList) {
 		$fileContent = $fileContent -replace('CREATE PROC','ALTER PROC')
 		$fileContent = $fileContent -replace('CREATE FUNCTION','ALTER FUNCTION')
 		$fileContent = $fileContent -replace('CREATE TRIGGER','ALTER TRIGGER')
+		$fileContent = $fileContent -replace('CREATE VIEW','ALTER VIEW')
 	}
 
-    # Add file separator if necessary
-    if($fileContent -notmatch $fileSeparatorPattern) {
-        Write-Debug 'Add file separator'
-        $fileContent = $fileContent + "`r`n$fileSeparator"
-    }
+	# Add DROP TABLE
+	if($dropTableFlag) {
+		$dropTableStatemant = "DROP TABLE IF EXISTS $objectName;`r`n$fileSeparator`r`n"
+		$fileContent = $dropTableStatemant + $fileContent
+	}
 
-    if($AddInfoMessage = 1) {
-        $fileName = Split-Path -Path $resolvedFile -Leaf
-        $infoMessage = "RAISERROR('Running $fileName...', 10, 1, 1) WITH NOWAIT;`r`n$fileSeparator`r`n"
-        $fileContent = $infoMessage + $fileContent
-    }
+	# Add file separator if necessary
+	if($fileContent -notmatch $fileSeparatorPattern) {
+		Write-Debug 'Add file separator'
+		$fileContent = $fileContent + "`r`n$fileSeparator"
+	}
 
-    # Add to script
-    Add-Content -Path $OutputFilePath -Value $fileContent -Encoding UTF8
+	if($AddInfoMessage) {
+		$infoMessage = "RAISERROR('Running $fileName...', 10, 1, 1) WITH NOWAIT;`r`n$fileSeparator`r`n"
+		$fileContent = $infoMessage + $fileContent
+	}
+
+	# Add to script
+	Add-Content -Path $OutputFilePath -Value $fileContent -Encoding utf8
 }
-if($AddInfoMessage = 1) {
-    $infoMessage = "RAISERROR('Script completed!', 10, 1, 1) WITH NOWAIT;`r`n$fileSeparator`r`n"
-    Add-Content -Path $OutputFilePath -Value $infoMessage -Encoding UTF8
+if($AddInfoMessage) {
+	$infoMessage = "RAISERROR('Script completed!', 10, 1, 1) WITH NOWAIT;`r`n$fileSeparator`r`n"
+	Add-Content -Path $OutputFilePath -Value $infoMessage -Encoding utf8
 }
 Write-Host "Script created:"$OutputFilePath
